@@ -1,5 +1,3 @@
-from dbm import sqlite3
-
 from flask import Flask, request, redirect, session, render_template, send_file, send_from_directory, abort, flash
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -8,7 +6,7 @@ import random
 import string
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from datetime import timedelta
+from werkzeug.security import generate_password_hash, check_password_hash
 import smtplib
 from email.mime.text import MIMEText
 import time
@@ -16,7 +14,7 @@ import zipfile          # to create zip files
 from io import BytesIO  # to keep zip in memory
 from dotenv import load_dotenv
 load_dotenv()
-
+from datetime import datetime, timedelta
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
@@ -42,7 +40,48 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt"}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
 
-otp_storage = {}
+def store_otp(email, otp_code):
+    """Save OTP to database with 5-minute expiry."""
+    expiry = datetime.utcnow() + timedelta(minutes=5)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO otps (email, otp_code, expiry)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (email) DO UPDATE
+        SET otp_code = EXCLUDED.otp_code,
+            expiry = EXCLUDED.expiry
+    """, (email, otp_code, expiry))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+def verify_otp(email, otp_input):
+    """Verify OTP from database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT otp_code, expiry FROM otps WHERE email=%s", (email,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return False, "No OTP found"
+    otp_code, expiry = row
+    if isinstance(expiry, str):
+        expiry = datetime.fromisoformat(expiry)
+        if datetime.utcnow() > expiry:
+            return False, "OTP expired"
+    if otp_input != otp_code:
+        return False, "Invalid OTP"
+    return True, "OTP verified"
+
+def delete_otp(email):
+    """Remove OTP after successful verification."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM otps WHERE email=%s", (email,))
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 # ------------------ HELPERS ------------------
 def allowed_file(filename):
@@ -63,8 +102,12 @@ def validate_csrf():
         abort(403)
 
 def get_db_connection():
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
-    return conn
+    return psycopg2.connect(
+        os.environ["DATABASE_URL"],
+        cursor_factory=RealDictCursor,
+        sslmode="require"
+    )
+
 
 #------------------OTP-----------------
 def send_otp_email(to_email, otp_code):
@@ -93,7 +136,7 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Users table
+    # ------------------ USERS TABLE ------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -108,7 +151,7 @@ def init_db():
     )
     """)
 
-    # Submissions table
+    # ------------------ SUBMISSIONS TABLE ------------------
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS submissions (
         id SERIAL PRIMARY KEY,
@@ -120,7 +163,16 @@ def init_db():
     )
     """)
 
-    # Default teacher
+    # ------------------ OTP TABLE ------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS otps (
+        email TEXT PRIMARY KEY,
+        otp_code TEXT NOT NULL,
+        expiry TIMESTAMP NOT NULL
+    )
+    """)
+
+    # ------------------ DEFAULT TEACHER ACCOUNT ------------------
     cursor.execute("SELECT * FROM users WHERE email=%s", ("teacher@gmail.com",))
     if not cursor.fetchone():
         hashed_pass = generate_password_hash("Teacher123")
@@ -129,11 +181,11 @@ def init_db():
         VALUES (%s, %s, %s, %s, %s, TRUE)
         """, ("teacher", "Admin Teacher", "teacher@gmail.com", hashed_pass, "teacher"))
 
+    # ------------------ COMMIT & CLOSE ------------------
     conn.commit()
     cursor.close()
     conn.close()
-
-init_db()
+    print("✅ Database initialized with users, submissions, and OTP tables.")
 
 # ------------------ REGISTER ------------------
 @app.route('/register', methods=['GET', 'POST'])
@@ -148,16 +200,14 @@ def register():
 
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
+        cursor.execute("SELECT is_verified FROM users WHERE email=%s", (email,))
         existing = cursor.fetchone()
 
+        # CASE 1: user exists
         if existing:
-            if existing[8] == 0:
-                # User not verified → resend OTP
+            if not existing["is_verified"]:
                 otp_code = ''.join(random.choices(string.digits, k=6))
-                expiry = time.time() + 300  # 5 minutes
-                otp_storage[email] = (otp_code, expiry)
-
+                store_otp(email, otp_code)
                 send_otp_email(email, otp_code)
                 conn.close()
                 return redirect(f"/verify?email={email}")
@@ -165,6 +215,7 @@ def register():
                 conn.close()
                 return "Email already registered. Please login ❌"
 
+    # CASE 2: NEW USER → continue registration below
         # New user → create account
         hashed_pass = generate_password_hash(password)
         student_code = generate_student_code() if role == 'student' else None
@@ -173,68 +224,82 @@ def register():
         INSERT INTO users (username, fullname, email, password, role, student_code, matric, is_verified)
         VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)
         """, (fullname, fullname, email, hashed_pass, role, student_code, matric))
+
         conn.commit()
         conn.close()
 
-        # Generate OTP
-        otp_code = ''.join(random.choices(string.digits, k=6))
-        expiry = time.time() + 300  # 5 minutes
-        otp_storage[email] = (otp_code, expiry)
-
-        send_otp_email(email, otp_code)
-
-        return redirect(f"/verify?email={email}")
 
     return render_template('register.html', csrf_token=generate_csrf_token())
 
-# ------------------ VERIFY ------------------
-@app.route("/verify", methods=["GET", "POST"])
-def verify():
-    email = request.args.get("email").lower()
-    if request.method == "POST":
-        validate_csrf()
-        otp_input = request.form.get("otp")
-
-        if email in otp_storage:
-            stored_otp, expiry = otp_storage[email]
-
-            if time.time() > expiry:
-                flash("❌ OTP expired")
-                return redirect(f"/verify?email={email}")
-
-            if otp_input == stored_otp:
-                conn = get_db_connection()
-                cursor = conn.cursor()
-                cursor.execute("UPDATE users SET is_verified=TRUE WHERE email=%s", (email,))
-                conn.commit()
-                conn.close()
-
-                del otp_storage[email]
-                flash("✅ Verified!")
-                return redirect("/login")
-
-        flash("❌ Invalid OTP")
-
-    return render_template("verify.html", email=email, csrf_token=generate_csrf_token())
-
+# ------------------ RESEND OTP ------------------
 @app.route("/resend_otp", methods=["POST"])
 def resend_otp():
     validate_csrf()
-    email = request.form.get("email").lower()
+    email = request.form.get("email")
 
     if not email:
         flash("❌ Email missing")
         return redirect("/register")
 
-    # Generate new OTP
+    email = email.lower()
+
     otp_code = ''.join(random.choices(string.digits, k=6))
-    expiry = time.time() + 300  # 5 minutes
-    otp_storage[email] = (otp_code, expiry)
 
+    store_otp(email, otp_code)
     send_otp_email(email, otp_code)
-    flash("🔁 New OTP sent!")
 
+    flash("🔁 New OTP sent!")
     return redirect(f"/verify?email={email}")
+
+# ------------------ VERIFY ------------------
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        validate_csrf()
+
+        fullname = request.form['fullname']
+        email = request.form['email'].lower()
+        password = request.form['password']
+        matric = request.form['matric'].upper()
+        role = request.form.get('role', 'student')
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT is_verified FROM users WHERE email=%s", (email,))
+        existing = cursor.fetchone()
+
+        # CASE 1: USER EXISTS
+        if existing:
+            if not existing["is_verified"]:
+                otp_code = ''.join(random.choices(string.digits, k=6))
+                store_otp(email, otp_code)
+                send_otp_email(email, otp_code)
+                conn.close()
+                return redirect(f"/verify?email={email}")
+            else:
+                conn.close()
+                return "Email already registered. Please login ❌"
+
+        # CASE 2: NEW USER
+        hashed_pass = generate_password_hash(password)
+        student_code = generate_student_code() if role == 'student' else None
+
+        cursor.execute("""
+        INSERT INTO users (username, fullname, email, password, role, student_code, matric, is_verified)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)
+        """, (fullname, fullname, email, hashed_pass, role, student_code, matric))
+
+        conn.commit()
+        conn.close()
+
+        otp_code = ''.join(random.choices(string.digits, k=6))
+        store_otp(email, otp_code)
+        send_otp_email(email, otp_code)
+
+        return redirect(f"/verify?email={email}")
+
+    return render_template('register.html', csrf_token=generate_csrf_token())
 
 # ------------------ LOGIN ------------------
 @app.route('/login', methods=['GET', 'POST'])
@@ -252,7 +317,7 @@ def login():
 
         time.sleep(1)
         if user and check_password_hash(user[2], password):
-            if user[3] == 0:
+            if not user["is_verified"]:
                 return "❌ Verify your account first"
             session.permanent = True
             session['username'] = user[0]
