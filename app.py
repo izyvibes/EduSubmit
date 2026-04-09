@@ -187,6 +187,11 @@ def init_db():
     conn.close()
     print("✅ Database initialized with users, submissions, and OTP tables.")
 
+@app.route("/")
+def home():
+    return redirect("/login")
+
+
 # ------------------ REGISTER ------------------
 @app.route('/register', methods=['GET', 'POST'])
 def register():
