@@ -148,7 +148,7 @@ def register():
 
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE email=?", (email,))
+        cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
         existing = cursor.fetchone()
 
         if existing:
@@ -171,9 +171,8 @@ def register():
 
         cursor.execute("""
         INSERT INTO users (username, fullname, email, password, role, student_code, matric, is_verified)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)
         """, (fullname, fullname, email, hashed_pass, role, student_code, matric))
-
         conn.commit()
         conn.close()
 
@@ -206,7 +205,7 @@ def verify():
             if otp_input == stored_otp:
                 conn = get_db_connection()
                 cursor = conn.cursor()
-                cursor.execute("UPDATE users SET is_verified=1 WHERE email=?", (email,))
+                cursor.execute("UPDATE users SET is_verified=TRUE WHERE email=%s", (email,))
                 conn.commit()
                 conn.close()
 
@@ -247,7 +246,7 @@ def login():
 
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT username, role, password, is_verified FROM users WHERE email=?", (email,))
+        cursor.execute("SELECT username, role, password, is_verified FROM users WHERE email=%s", (email,))
         user = cursor.fetchone()
         conn.close()
 
@@ -290,7 +289,7 @@ def assignment():
 
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT matric, fullname FROM users WHERE username=?", (username,))
+        cursor.execute("SELECT matric, fullname FROM users WHERE username=%s", (username,))
         result = cursor.fetchone()
         correct_matric = result[0]
         fullname = result[1]
@@ -312,7 +311,7 @@ def assignment():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO submissions (username, fullname, matric, course, filename) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO submissions (username, fullname, matric, course, filename) VALUES (%s, %s, %s, %s, %s)",
             (username, fullname, matric_input, request.form["course"], filename)
         )
         conn.commit()
@@ -380,13 +379,13 @@ def delete_submission(id):
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT filename FROM submissions WHERE id=?", (id,))
+    cursor.execute("SELECT filename FROM submissions WHERE id=%s", (id,))
     file = cursor.fetchone()
     if file and file[0]:
         file_path = os.path.join(app.config["UPLOAD_FOLDER"], file[0])
         if os.path.exists(file_path):
             os.remove(file_path)
-    cursor.execute("DELETE FROM submissions WHERE id=?", (id,))
+    cursor.execute("DELETE FROM submissions WHERE id=%s", (id,))
     conn.commit()
     conn.close()
     return redirect("/submissions")
