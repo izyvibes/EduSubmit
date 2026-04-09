@@ -15,6 +15,9 @@ from io import BytesIO  # to keep zip in memory
 from dotenv import load_dotenv
 load_dotenv()
 from datetime import datetime, timedelta
+import atexit
+
+
 
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
@@ -470,3 +473,8 @@ if __name__ == "__main__":
     init_db()  # ← ADD THIS LINE
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
+def startup():
+    init_db()
+
+startup()
