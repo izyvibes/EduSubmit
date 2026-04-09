@@ -1,5 +1,8 @@
+from dbm import sqlite3
+
 from flask import Flask, request, redirect, session, render_template, send_file, send_from_directory, abort, flash
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import os
 import random
 import string
@@ -58,6 +61,11 @@ def validate_csrf():
     form_token = request.form.get("csrf_token")
     if not token or token != form_token:
         abort(403)
+
+def get_db_connection():
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    return conn
+
 #------------------OTP-----------------
 def send_otp_email(to_email, otp_code):
     sender_email = os.environ.get("EMAIL_USER")       # your Gmail
@@ -82,13 +90,13 @@ def send_otp_email(to_email, otp_code):
         print("❌ Failed to send OTP:", e)
 # ------------------ DATABASE ------------------
 def init_db():
-    conn = sqlite3.connect("database.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     # Users table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         username TEXT NOT NULL UNIQUE,
         fullname TEXT,
         email TEXT NOT NULL UNIQUE,
@@ -96,14 +104,14 @@ def init_db():
         role TEXT NOT NULL,
         student_code TEXT,
         matric TEXT UNIQUE,
-        is_verified INTEGER DEFAULT 0
+        is_verified BOOLEAN DEFAULT FALSE
     )
     """)
 
     # Submissions table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS submissions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id SERIAL PRIMARY KEY,
         username TEXT NOT NULL,
         fullname TEXT NOT NULL,
         matric TEXT NOT NULL,
@@ -112,26 +120,20 @@ def init_db():
     )
     """)
 
-    # Add default teacher account if not exists
-    cursor.execute("SELECT * FROM users WHERE email=?", ("teacher@gmail.com",))
+    # Default teacher
+    cursor.execute("SELECT * FROM users WHERE email=%s", ("teacher@gmail.com",))
     if not cursor.fetchone():
         hashed_pass = generate_password_hash("Teacher123")
         cursor.execute("""
         INSERT INTO users (username, fullname, email, password, role, is_verified)
-        VALUES (?, ?, ?, ?, ?, 1)
+        VALUES (%s, %s, %s, %s, %s, TRUE)
         """, ("teacher", "Admin Teacher", "teacher@gmail.com", hashed_pass, "teacher"))
 
     conn.commit()
+    cursor.close()
     conn.close()
 
 init_db()
-
-# ------------------ ROUTES ------------------
-@app.route("/")
-def home():
-    if "username" in session:
-        return redirect("/dashboard")
-    return render_template("homepage.html")
 
 # ------------------ REGISTER ------------------
 @app.route('/register', methods=['GET', 'POST'])
@@ -144,7 +146,7 @@ def register():
         matric = request.form['matric'].upper()
         role = request.form.get('role', 'student')
 
-        conn = sqlite3.connect('database.db')
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users WHERE email=?", (email,))
         existing = cursor.fetchone()
@@ -202,7 +204,7 @@ def verify():
                 return redirect(f"/verify?email={email}")
 
             if otp_input == stored_otp:
-                conn = sqlite3.connect("database.db")
+                conn = get_db_connection()
                 cursor = conn.cursor()
                 cursor.execute("UPDATE users SET is_verified=1 WHERE email=?", (email,))
                 conn.commit()
@@ -243,7 +245,7 @@ def login():
         email = request.form['email'].lower()
         password = request.form['password']
 
-        conn = sqlite3.connect('database.db')
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT username, role, password, is_verified FROM users WHERE email=?", (email,))
         user = cursor.fetchone()
@@ -286,7 +288,7 @@ def assignment():
         username = session["username"]
         matric_input = request.form["matric"].upper()
 
-        conn = sqlite3.connect("database.db")
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT matric, fullname FROM users WHERE username=?", (username,))
         result = cursor.fetchone()
@@ -307,7 +309,7 @@ def assignment():
         filename = f"{username}_{safe_filename}"
         file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
 
-        conn = sqlite3.connect("database.db")
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO submissions (username, fullname, matric, course, filename) VALUES (?, ?, ?, ?, ?)",
@@ -326,7 +328,7 @@ def submissions():
     if "username" not in session or session.get("role") != "teacher":
         return "Access Denied ❌"
 
-    conn = sqlite3.connect("database.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT id, username, fullname, matric, course, filename FROM submissions")
     rows = cursor.fetchall()
@@ -344,7 +346,7 @@ def download_all():
     if "username" not in session or session.get("role") != "teacher":
         return redirect("/login")
 
-    conn = sqlite3.connect("database.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT filename FROM submissions")
     files = cursor.fetchall()
@@ -376,7 +378,7 @@ def delete_submission(id):
         return redirect("/login")
     validate_csrf()
 
-    conn = sqlite3.connect("database.db")
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT filename FROM submissions WHERE id=?", (id,))
     file = cursor.fetchone()
