@@ -258,6 +258,7 @@ def resend_otp():
 
 
 # ------------------ LOGIN ------------------
+# ------------------ LOGIN ------------------
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -267,18 +268,25 @@ def login():
 
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT username, role, password, is_verified FROM users WHERE email=%s", (email,))
+        cursor.execute(
+            "SELECT username, role, password, is_verified FROM users WHERE email=%s",
+            (email,)
+        )
         user = cursor.fetchone()
         conn.close()
 
         time.sleep(1)
-        if user and check_password_hash(user[2], password):
+
+        if user and check_password_hash(user["password"], password):
             if not user["is_verified"]:
                 return "❌ Verify your account first"
+
             session.permanent = True
-            session['username'] = user[0]
-            session['role'] = user[1]
+            session['username'] = user["username"]
+            session['role'] = user["role"]
+
             return redirect('/dashboard')
+
         return "Invalid email or password ❌"
 
     return render_template('login.html', csrf_token=generate_csrf_token())
