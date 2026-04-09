@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Submit Assignment 📄</title>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+    background: linear-gradient(135deg, #ff7e5f, #feb47b);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 20px;
+}
+
+.container {
+    background: #fff;
+    padding: 30px;
+    border-radius: 15px;
+    width: 90%;
+    max-width: 500px;
+    margin-top: 40px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 25px;
+    color: #333;
+    font-size: 28px;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #555;
+}
+
+input[type="text"], input[type="file"] {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    transition: 0.3s;
+}
+
+input:focus {
+    border-color: #feb47b;
+    outline: none;
+    box-shadow: 0 0 5px rgba(254,180,123,0.5);
+}
+
+button {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: #ff7e5f;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+button:hover {
+    background: #feb47b;
+}
+
+p.message {
+    text-align: center;
+    margin-bottom: 15px;
+    color: green;
+}
+
+p.back a {
+    color: #ff7e5f;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+p.back a:hover {
+    color: #feb47b;
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 500px) {
+    .container {
+        padding: 20px;
+    }
+    h1 {
+        font-size: 24px;
+    }
+    input, button {
+        padding: 10px;
+        font-size: 14px;
+    }
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>Submit Assignment</h1>
+
+    {% if message %}
+        <p class="message">{{ message }}</p>
+    {% endif %}
+
+    <form method="POST" enctype="multipart/form-data">
+        <label>Full Name:</label>
+        <input type="text" name="fullname" value="{{ username }}" readonly>
+
+        <label>Matric Number:</label>
+        <input type="text" name="matric" required>
+
+        <label>Course:</label>
+        <input type="text" name="course" required>
+
+        <label>Assignment File:</label>
+        <input type="file" name="assignment" required>
+
+        <button type="submit">Submit</button>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    </form>
+
+    <p class="back" style="text-align:center; margin-top:20px;">
+        <a href="/dashboard">⬅ Back to Dashboard</a>
+    </p>
+</div>
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+</body>
+</html>
