@@ -466,8 +466,7 @@ def uploads(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 # ------------------ RUN ------------------
-# ------------------ RUN ------------------
 if __name__ == "__main__":
-    # Railway provides the PORT environment variable
+    init_db()  # ← ADD THIS LINE
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
