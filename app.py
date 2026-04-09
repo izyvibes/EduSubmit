@@ -251,55 +251,6 @@ def resend_otp():
     flash("🔁 New OTP sent!")
     return redirect(f"/verify?email={email}")
 
-# ------------------ VERIFY ------------------
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        validate_csrf()
-
-        fullname = request.form['fullname']
-        email = request.form['email'].lower()
-        password = request.form['password']
-        matric = request.form['matric'].upper()
-        role = request.form.get('role', 'student')
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT is_verified FROM users WHERE email=%s", (email,))
-        existing = cursor.fetchone()
-
-        # CASE 1: USER EXISTS
-        if existing:
-            if not existing["is_verified"]:
-                otp_code = ''.join(random.choices(string.digits, k=6))
-                store_otp(email, otp_code)
-                send_otp_email(email, otp_code)
-                conn.close()
-                return redirect(f"/verify?email={email}")
-            else:
-                conn.close()
-                return "Email already registered. Please login ❌"
-
-        # CASE 2: NEW USER
-        hashed_pass = generate_password_hash(password)
-        student_code = generate_student_code() if role == 'student' else None
-
-        cursor.execute("""
-        INSERT INTO users (username, fullname, email, password, role, student_code, matric, is_verified)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE)
-        """, (fullname, fullname, email, hashed_pass, role, student_code, matric))
-
-        conn.commit()
-        conn.close()
-
-        otp_code = ''.join(random.choices(string.digits, k=6))
-        store_otp(email, otp_code)
-        send_otp_email(email, otp_code)
-
-        return redirect(f"/verify?email={email}")
-
-    return render_template('register.html', csrf_token=generate_csrf_token())
 
 # ------------------ LOGIN ------------------
 @app.route('/login', methods=['GET', 'POST'])
@@ -326,6 +277,46 @@ def login():
         return "Invalid email or password ❌"
 
     return render_template('login.html', csrf_token=generate_csrf_token())
+
+
+# ------------------ VERIFY ------------------
+@app.route("/verify", methods=["GET", "POST"])
+def verify():
+    email = request.args.get("email", "").lower()
+
+    if not email:
+        return redirect("/register")
+
+    if request.method == "POST":
+        validate_csrf()
+        otp_input = request.form.get("otp")
+
+        valid, msg = verify_otp(email, otp_input)
+
+        if valid:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET is_verified=TRUE WHERE email=%s",
+                (email,)
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+            delete_otp(email)
+            flash("✅ Account Verified!")
+            return redirect("/login")
+
+        flash(f"❌ {msg}")
+
+    return render_template(
+        "verify.html",
+        email=email,
+        csrf_token=generate_csrf_token()
+    )
+
+
 
 # ------------------ DASHBOARD ------------------
 @app.route("/dashboard")
