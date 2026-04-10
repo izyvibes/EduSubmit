@@ -474,9 +474,11 @@ def download_all():
     memory_file = BytesIO()
     with zipfile.ZipFile(memory_file, 'w') as zf:
         for f in files:
-            file_path = os.path.join(app.config["UPLOAD_FOLDER"], f[0])
+            filename = f["filename"]
+            file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+
             if os.path.exists(file_path):
-                zf.write(file_path, arcname=f[0])
+                zf.write(file_path, arcname=filename)
     memory_file.seek(0)
 
     return send_file(
@@ -498,8 +500,9 @@ def delete_submission(id):
     cursor = conn.cursor()
     cursor.execute("SELECT filename FROM submissions WHERE id=%s", (id,))
     file = cursor.fetchone()
-    if file and file[0]:
-        file_path = os.path.join(app.config["UPLOAD_FOLDER"], file[0])
+
+    if file and file["filename"]:
+        file_path = os.path.join(app.config["UPLOAD_FOLDER"], file["filename"])
         if os.path.exists(file_path):
             os.remove(file_path)
     cursor.execute("DELETE FROM submissions WHERE id=%s", (id,))
