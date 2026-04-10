@@ -43,11 +43,14 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "txt"}
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
 
+# ------------------ OTP DATABASE ------------------
 def store_otp(email, otp_code):
     """Save OTP to database with 5-minute expiry."""
     expiry = datetime.utcnow() + timedelta(minutes=5)
+
     conn = get_db_connection()
     cursor = conn.cursor()
+
     cursor.execute("""
         INSERT INTO otps (email, otp_code, expiry)
         VALUES (%s, %s, %s)
@@ -55,33 +58,50 @@ def store_otp(email, otp_code):
         SET otp_code = EXCLUDED.otp_code,
             expiry = EXCLUDED.expiry
     """, (email, otp_code, expiry))
+
     conn.commit()
     cursor.close()
     conn.close()
+
 
 def verify_otp(email, otp_input):
     """Verify OTP from database."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT otp_code, expiry FROM otps WHERE email=%s", (email,))
+
+    cursor.execute(
+        "SELECT otp_code, expiry FROM otps WHERE email=%s",
+        (email,)
+    )
+
     row = cursor.fetchone()
     conn.close()
+
     if not row:
         return False, "No OTP found"
-    otp_code, expiry = row
-    if isinstance(expiry, str):
-        expiry = datetime.fromisoformat(expiry)
-        if datetime.utcnow() > expiry:
-            return False, "OTP expired"
+
+    otp_code = row["otp_code"]
+    expiry = row["expiry"]
+
+    if datetime.utcnow() > expiry:
+        return False, "OTP expired"
+
     if otp_input != otp_code:
         return False, "Invalid OTP"
+
     return True, "OTP verified"
+
 
 def delete_otp(email):
     """Remove OTP after successful verification."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM otps WHERE email=%s", (email,))
+
+    cursor.execute(
+        "DELETE FROM otps WHERE email=%s",
+        (email,)
+    )
+
     conn.commit()
     cursor.close()
     conn.close()
