@@ -134,6 +134,9 @@ def send_otp_email(to_email, otp_code):
         print(f"✅ OTP sent to {to_email}")
     except Exception as e:
         print("❌ Failed to send OTP:", e)
+
+
+
 # ------------------ DATABASE ------------------
 def init_db():
     conn = get_db_connection()
@@ -162,7 +165,8 @@ def init_db():
         fullname TEXT NOT NULL,
         matric TEXT NOT NULL,
         course TEXT NOT NULL,
-        filename TEXT NOT NULL
+        filename TEXT NOT NULL,
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
@@ -177,19 +181,31 @@ def init_db():
 
     # ------------------ DEFAULT TEACHER ACCOUNT ------------------
     cursor.execute("SELECT * FROM users WHERE email=%s", ("teacher@gmail.com",))
+    
     if not cursor.fetchone():
         hashed_pass = generate_password_hash("Teacher123")
         cursor.execute("""
         INSERT INTO users (username, fullname, email, password, role, is_verified)
         VALUES (%s, %s, %s, %s, %s, TRUE)
-        """, ("teacher", "Admin Teacher", "teacher@gmail.com", hashed_pass, "teacher"))
+        """, (
+            "teacher",
+            "Admin Teacher",
+            "teacher@gmail.com",
+            hashed_pass,
+            "teacher"
+        ))
 
     # ------------------ COMMIT & CLOSE ------------------
     conn.commit()
     cursor.close()
     conn.close()
-    print("✅ Database initialized with users, submissions, and OTP tables.")
 
+    print("✅ Database initialized successfully")
+    # Initialize database on startup
+    init_db()
+
+
+#=------------------ HOME ------------------
 @app.route("/")
 def home():
     return redirect("/login")
@@ -470,11 +486,5 @@ def uploads(filename):
 
 # ------------------ RUN ------------------
 if __name__ == "__main__":
-    init_db()  # ← ADD THIS LINE
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-
-def startup():
-    init_db()
-
-startup()
