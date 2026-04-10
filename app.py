@@ -1,3 +1,5 @@
+from unittest import result
+
 from flask import Flask, request, redirect, session, render_template, send_file, send_from_directory, abort, flash
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -399,8 +401,8 @@ def assignment():
         cursor = conn.cursor()
         cursor.execute("SELECT matric, fullname FROM users WHERE username=%s", (username,))
         result = cursor.fetchone()
-        correct_matric = result[0]
-        fullname = result[1]
+        correct_matric = result["matric"]
+        fullname = result["fullname"]
         if matric_input != correct_matric:
             conn.close()
             return "❌ Matric mismatch"
