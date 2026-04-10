@@ -444,9 +444,16 @@ def submissions():
     conn.close()
 
     submissions_list = [
-        {"id": r[0], "username": r[1], "fullname": r[2], "matric": r[3], "course": r[4], "filename": r[5]}
-        for r in rows
-    ]
+    {
+        "id": r["id"],
+        "username": r["username"],
+        "fullname": r["fullname"],
+        "matric": r["matric"],
+        "course": r["course"],
+        "filename": r["filename"]
+    }
+    for r in rows
+]
     return render_template("submissions.html", submissions=submissions_list, csrf_token=generate_csrf_token())
 
 # ------------------ DOWNLOAD ALL SUBMISSIONS ------------------
